@@ -22,7 +22,13 @@ let greenData = null;
 let waterData = null;
 let roadsData = null;
 let landuseData = null;
+let scheduleData = null;
+let mySchedule = [];
 let is3D = true;
+let isPlaying = false;
+let playInterval = null;
+let currentDayFilter = 'Mon';
+let currentTimeMinutes = 600; // 10:00 AM
 
 // ─── Initialise map ───
 const map = new maplibregl.Map({
@@ -62,6 +68,17 @@ const map = new maplibregl.Map({
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
 map.addControl(new maplibregl.ScaleControl({ maxWidth: 200 }), 'bottom-right');
 
+// ─── Right Sidebar Toggle ───
+const rightSidebar = document.getElementById('sidebar-right');
+const toggleBtn = document.getElementById('toggleRightSidebar');
+toggleBtn.addEventListener('click', () => {
+    rightSidebar.classList.toggle('collapsed');
+    document.body.classList.toggle('right-open');
+    // Let map resize after CSS transition
+    setTimeout(() => map.resize(), 400);
+});
+
+
 // ─── Load all data when map ready ───
 map.on('load', async () => {
     // Load layers in visual stacking order (bottom to top)
@@ -72,11 +89,24 @@ map.on('load', async () => {
         loadWater(),
         loadRoads(),
         loadBuildings(),
-        loadTrees()
+        loadTrees(),
+        loadSchedule()
     ]);
     document.getElementById('loading').classList.add('hidden');
     buildCharts();
+    setupTimeControls();
+    setupCourseScheduleUI();
 });
+
+async function loadSchedule() {
+    try {
+        const res = await fetch('data/ua_class_schedule.json');
+        if (!res.ok) throw new Error(`${res.status}`);
+        scheduleData = await res.json();
+    } catch (e) {
+        console.warn('Schedule data not loaded:', e.message);
+    }
+}
 
 // ═══════════════════════════════════════════
 // General Landuse (Base Layer)
@@ -396,6 +426,7 @@ async function loadBuildings() {
             type: 'fill-extrusion',
             source: 'buildings',
             paint: {
+                // Initial color, will be overridden by occupancy
                 'fill-extrusion-color': buildingColorStops,
                 'fill-extrusion-height': ['get', '_displayHeight'],
                 'fill-extrusion-base': 0,
@@ -541,6 +572,362 @@ async function loadTrees() {
 }
 
 // ═══════════════════════════════════════════
+// Temporal Analysis & Occupancy
+// ═══════════════════════════════════════════
+
+function setupTimeControls() {
+    const slider = document.getElementById('timeSlider');
+    const daySelect = document.getElementById('daySelector');
+    const playBtn = document.getElementById('playPauseBtn');
+
+    slider.addEventListener('input', (e) => {
+        currentTimeMinutes = parseInt(e.target.value);
+        updateTimeDisplay();
+        updateOccupancyHeatmap();
+    });
+
+    daySelect.addEventListener('change', (e) => {
+        currentDayFilter = e.target.value;
+        document.getElementById('currentDay').textContent = daySelect.options[daySelect.selectedIndex].text;
+
+        // Sync schedule dropdown
+        const scheduleDaySelect = document.getElementById('scheduleDaySelect');
+        if (scheduleDaySelect) scheduleDaySelect.value = currentDayFilter;
+
+        updateOccupancyHeatmap();
+        renderMySchedule();
+    });
+
+    playBtn.addEventListener('click', () => {
+        isPlaying = !isPlaying;
+        if (isPlaying) {
+            playBtn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M14,19H18V5H14M6,19H10V5H6V19Z" /></svg>';
+            playInterval = setInterval(() => {
+                currentTimeMinutes += 5;
+                if (currentTimeMinutes > 1320) currentTimeMinutes = 360;
+                slider.value = currentTimeMinutes;
+                updateTimeDisplay();
+                updateOccupancyHeatmap();
+            }, 300);
+        } else {
+            playBtn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M8,5.14V19.14L19,12.14L8,5.14Z" /></svg>';
+            clearInterval(playInterval);
+        }
+    });
+
+    updateTimeDisplay();
+}
+
+function updateTimeDisplay() {
+    const h = Math.floor(currentTimeMinutes / 60);
+    const m = currentTimeMinutes % 60;
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    document.getElementById('currentTime').textContent = `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
+}
+
+function updateOccupancyHeatmap() {
+    if (!buildingsData || !scheduleData) return;
+
+    // Compute currently active classes per building
+    const occupancyData = {};
+
+    scheduleData.forEach(course => {
+        if (!course.days.includes(currentDayFilter)) return;
+
+        const start = timeToMinutes(course.startTime);
+        const end = timeToMinutes(course.endTime);
+
+        if (currentTimeMinutes >= start && currentTimeMinutes <= end) {
+            if (!occupancyData[course.building]) {
+                occupancyData[course.building] = { enrolled: 0, capacity: 0 };
+            }
+            occupancyData[course.building].enrolled += course.enrollment;
+            occupancyData[course.building].capacity += course.capacity;
+        }
+    });
+
+    const entries = Object.entries(occupancyData);
+
+    // If no active classes, revert to default height-based coloring
+    if (entries.length === 0) {
+        if (map.getLayer('buildings-3d')) {
+            map.setPaintProperty('buildings-3d', 'fill-extrusion-color', buildingColorStops);
+        }
+        return;
+    }
+
+    // Build a valid MapLibre 'case' expression: ['case', cond1, val1, cond2, val2, ..., fallback]
+    const colorExpr = ['case'];
+
+    entries.forEach(([bName, data]) => {
+        const ratio = data.capacity > 0 ? data.enrolled / data.capacity : 0;
+        let color;
+        if (ratio > 0.8) color = '#ef4444';
+        else if (ratio > 0.6) color = '#f97316';
+        else if (ratio > 0.4) color = '#fbbf24';
+        else if (ratio > 0.2) color = '#3d8cf0';
+        else color = '#3d5a9e';
+
+        colorExpr.push(['==', ['get', 'display_name'], bName]);
+        colorExpr.push(color);
+    });
+
+    colorExpr.push('#2a3a6b'); // Fallback: simple string (not a nested expression)
+
+    if (map.getLayer('buildings-3d')) {
+        map.setPaintProperty('buildings-3d', 'fill-extrusion-color', colorExpr);
+    }
+}
+
+function timeToMinutes(timeStr) {
+    const [h, m] = timeStr.split(':').map(Number);
+    return h * 60 + m;
+}
+
+// ═══════════════════════════════════════════
+// Course Schedule UI
+// ═══════════════════════════════════════════
+
+function setupCourseScheduleUI() {
+    const input = document.getElementById('courseSearchInput');
+    const results = document.getElementById('courseSearchResults');
+    const clearBtn = document.getElementById('clearScheduleBtn');
+    const routeBtn = document.getElementById('showRouteBtn');
+
+    input.addEventListener('input', (e) => {
+        const q = e.target.value.trim().toLowerCase();
+        if (!q || !scheduleData) {
+            results.innerHTML = '';
+            results.classList.add('hidden');
+            return;
+        }
+
+        const hits = scheduleData.filter(c =>
+            c.id.toLowerCase().includes(q) ||
+            c.title.toLowerCase().includes(q) ||
+            c.department.toLowerCase().includes(q) ||
+            c.building.toLowerCase().includes(q)
+        ).slice(0, 8);
+
+        if (hits.length > 0) {
+            results.innerHTML = hits.map(c => `
+                <div class="course-item" data-id="${c.id}">
+                    <div style="font-weight:600">${c.title}</div>
+                    <div class="course-meta">
+                        <span>${c.building} · rm ${c.room}</span>
+                        <span>${c.days.join('')} ${c.startTime}</span>
+                    </div>
+                </div>
+            `).join('');
+            results.classList.remove('hidden');
+        } else {
+            results.innerHTML = '<div class="course-item">No courses found</div>';
+        }
+    });
+
+    results.addEventListener('click', (e) => {
+        const item = e.target.closest('.course-item');
+        if (!item || !item.dataset.id) return;
+
+        const courseId = item.dataset.id;
+        const course = scheduleData.find(c => c.id === courseId);
+
+        if (course && !mySchedule.find(c => c.id === courseId)) {
+            mySchedule.push(course);
+            renderMySchedule();
+            // Fly to building
+            const b = buildingsData.features.find(f => f.properties.display_name === course.building);
+            if (b) {
+                const c = getCentroid(b.geometry);
+                map.flyTo({ center: c, zoom: 17, pitch: 60 });
+            }
+        }
+
+        input.value = '';
+        results.innerHTML = '';
+        results.classList.add('hidden');
+    });
+
+    clearBtn.addEventListener('click', () => {
+        mySchedule = [];
+        renderMySchedule();
+        if (map.getSource('route')) {
+            map.getSource('route').setData({ type: 'FeatureCollection', features: [] });
+        }
+        if (window._routeMarkers) {
+            window._routeMarkers.forEach(m => m.remove());
+            window._routeMarkers = [];
+        }
+    });
+
+    routeBtn.addEventListener('click', showWalkingRoute);
+
+    const scheduleDaySelect = document.getElementById('scheduleDaySelect');
+
+    scheduleDaySelect.addEventListener('change', (e) => {
+        currentDayFilter = e.target.value;
+
+        // Sync global controls
+        document.getElementById('daySelector').value = currentDayFilter;
+        document.getElementById('currentDay').textContent = scheduleDaySelect.options[scheduleDaySelect.selectedIndex].text;
+
+        updateOccupancyHeatmap();
+        renderMySchedule();
+    });
+
+    // Close dropdown on click outside
+    document.addEventListener('click', (e) => {
+        if (!input.contains(e.target) && !results.contains(e.target)) {
+            results.innerHTML = '';
+            results.classList.add('hidden');
+        }
+    });
+}
+
+function renderMySchedule() {
+    const list = document.getElementById('myScheduleList');
+    const clearBtn = document.getElementById('clearScheduleBtn');
+    const routeBtn = document.getElementById('showRouteBtn');
+
+    if (mySchedule.length === 0) {
+        list.innerHTML = '<p class="empty-msg">No courses added yet.</p>';
+        clearBtn.classList.add('hidden');
+        routeBtn.classList.add('hidden');
+        const scheduleDaySelect = document.getElementById('scheduleDaySelect');
+        if (scheduleDaySelect) scheduleDaySelect.style.display = 'none';
+        return;
+    }
+
+    clearBtn.classList.remove('hidden');
+    routeBtn.classList.remove('hidden');
+
+    // Sort by day order then by start time
+    const dayOrder = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+    const sorted = [...mySchedule].sort((a, b) => {
+        const dayA = Math.min(...a.days.map(d => dayOrder[d] ?? 7));
+        const dayB = Math.min(...b.days.map(d => dayOrder[d] ?? 7));
+        if (dayA !== dayB) return dayA - dayB;
+        return timeToMinutes(a.startTime) - timeToMinutes(b.startTime);
+    });
+
+    list.innerHTML = sorted.map(c => `
+        <div class="scheduled-course">
+            <span class="remove-course" onclick="removeCourse('${c.id}')">&times;</span>
+            <div class="course-title">${c.title}</div>
+            <div class="course-meta">
+                <span>${c.building} · ${c.days.join(', ')}</span>
+                <span>${c.startTime} – ${c.endTime}</span>
+            </div>
+        </div>
+    `).join('');
+
+    // Update route button text to be generic, as the dropdown above it shows the day
+    routeBtn.textContent = `🚶 Show Route`;
+
+    // Show/hide the schedule day selector
+    const scheduleDaySelect = document.getElementById('scheduleDaySelect');
+    if (scheduleDaySelect) {
+        scheduleDaySelect.style.display = 'block';
+        scheduleDaySelect.value = currentDayFilter;
+    }
+}
+
+window.removeCourse = (id) => {
+    mySchedule = mySchedule.filter(c => c.id !== id);
+    renderMySchedule();
+};
+
+async function showWalkingRoute() {
+    if (mySchedule.length < 2) return;
+
+    // Filter to the currently selected day, then sort by start time
+    const dayFiltered = mySchedule.filter(c => c.days.includes(currentDayFilter));
+    if (dayFiltered.length < 2) {
+        const dayNames = { Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday' };
+        alert(`You have fewer than 2 classes on ${dayNames[currentDayFilter] || currentDayFilter}. Switch the day selector or add more courses for that day.`);
+        return;
+    }
+    const sorted = dayFiltered.sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+
+    // Deduplicate consecutive buildings (skip if same building back-to-back)
+    const waypoints = [];
+    sorted.forEach(course => {
+        const b = buildingsData.features.find(f => f.properties.display_name === course.building);
+        if (b) {
+            const coord = getCentroid(b.geometry);
+            if (waypoints.length === 0 || waypoints[waypoints.length - 1].name !== course.building) {
+                waypoints.push({ coord, name: course.building, time: course.startTime });
+            }
+        }
+    });
+
+    if (waypoints.length < 2) {
+        alert('All your classes on this day are in the same building — no walking route needed!');
+        return;
+    }
+
+    // Build OSRM request — foot profile, full geometry as GeoJSON
+    const coordStr = waypoints.map(w => `${w.coord[0]},${w.coord[1]}`).join(';');
+    const osrmUrl = `https://router.project-osrm.org/route/v1/foot/${coordStr}?overview=full&geometries=geojson&steps=true`;
+
+    let routeGeometry;
+    try {
+        const res = await fetch(osrmUrl);
+        const data = await res.json();
+        if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+            routeGeometry = data.routes[0].geometry;
+        } else {
+            console.warn('OSRM returned no route, falling back to straight line');
+            routeGeometry = { type: 'LineString', coordinates: waypoints.map(w => w.coord) };
+        }
+    } catch (e) {
+        console.warn('OSRM request failed, falling back to straight line:', e.message);
+        routeGeometry = { type: 'LineString', coordinates: waypoints.map(w => w.coord) };
+    }
+
+    const routeGeoJSON = { type: 'Feature', properties: {}, geometry: routeGeometry };
+
+    // Remove old waypoint markers
+    if (window._routeMarkers) {
+        window._routeMarkers.forEach(m => m.remove());
+    }
+    window._routeMarkers = [];
+
+    // Draw the route line
+    if (!map.getSource('route')) {
+        map.addSource('route', { type: 'geojson', data: routeGeoJSON });
+        map.addLayer({
+            id: 'route-line',
+            type: 'line',
+            source: 'route',
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: { 'line-color': '#fbbf24', 'line-width': 5, 'line-opacity': 0.85 }
+        });
+    } else {
+        map.getSource('route').setData(routeGeoJSON);
+    }
+
+    // Add numbered waypoint markers with time info
+    waypoints.forEach((wp, i) => {
+        const el = document.createElement('div');
+        el.className = 'route-marker';
+        el.textContent = i + 1;
+        const popupText = wp.time ? `${i + 1}. ${wp.name} (${wp.time})` : `${i + 1}. ${wp.name}`;
+        const marker = new maplibregl.Marker({ element: el })
+            .setLngLat(wp.coord)
+            .setPopup(new maplibregl.Popup({ offset: 25 }).setText(popupText))
+            .addTo(map);
+        window._routeMarkers.push(marker);
+    });
+
+    // Fit map to route
+    const bounds = new maplibregl.LngLatBounds();
+    routeGeometry.coordinates.forEach(c => bounds.extend(c));
+    map.fitBounds(bounds, { padding: 80, pitch: 50 });
+}
+
+// ═══════════════════════════════════════════
 // Generic hover helper
 // ═══════════════════════════════════════════
 
@@ -636,6 +1023,103 @@ function showFeatureInfo(props, type) {
             <span class="info-value">${value}</span>
         </div>
     `).join('');
+
+    // Add Building Specific Analytics
+    const bName = props._name || props.display_name;
+    if (type === 'building' && bName && scheduleData) {
+        const buildingClasses = scheduleData.filter(c => c.building === bName);
+        if (buildingClasses.length > 0) {
+            const chartHtml = `
+                <div class="mt-4">
+                    <h3 class="panel-sub-title">Today's Classes (${buildingClasses.length})</h3>
+                    <div style="font-size:11px; max-height:120px; overflow-y:auto; margin-bottom:12px;">
+                        ${buildingClasses.map(c => `
+                            <div style="padding:4px 0; border-bottom:1px solid var(--border)">
+                                <b>${c.id}</b>: ${c.startTime} – ${c.endTime}
+                            </div>
+                        `).join('')}
+                    </div>
+                    <h3 class="panel-sub-title">Occupancy Timeline</h3>
+                    <div style="position:relative; height:130px; width:100%; margin-bottom:12px;">
+                        <canvas id="bldgTimelineChart"></canvas>
+                    </div>
+                    <h3 class="panel-sub-title">Room Utilization</h3>
+                    <div style="position:relative; height:130px; width:100%;">
+                        <canvas id="bldgUtilityChart"></canvas>
+                    </div>
+                </div>
+            `;
+            info.insertAdjacentHTML('beforeend', chartHtml);
+
+            // Build mini charts for this building after DOM updates
+            setTimeout(() => buildBuildingMiniCharts(bName, buildingClasses), 150);
+        }
+    }
+}
+
+function buildBuildingMiniCharts(bName, classes) {
+    const timelineCtx = document.getElementById('bldgTimelineChart')?.getContext('2d');
+    const utilityCtx = document.getElementById('bldgUtilityChart')?.getContext('2d');
+    if (!timelineCtx || !utilityCtx) return;
+
+    // Timeline: 7 AM to 9 PM
+    const hours = Array.from({ length: 15 }, (_, i) => i + 7);
+    const hourlyOccupancy = hours.map(h => {
+        const time = h * 60;
+        const active = classes.filter(c => {
+            const s = timeToMinutes(c.startTime);
+            const e = timeToMinutes(c.endTime);
+            return time >= s && time <= e;
+        });
+        const totalEnrolled = active.reduce((sum, c) => sum + c.enrollment, 0);
+        const totalCapacity = active.reduce((sum, c) => sum + c.capacity, 0);
+        return totalCapacity > 0 ? (totalEnrolled / totalCapacity) * 100 : 0;
+    });
+
+    new Chart(timelineCtx, {
+        type: 'line',
+        data: {
+            labels: hours.map(h => h > 12 ? (h - 12) + 'PM' : h + 'AM'),
+            datasets: [{
+                data: hourlyOccupancy,
+                borderColor: '#fbbf24',
+                backgroundColor: 'rgba(251, 191, 36, 0.1)',
+                fill: true,
+                tension: 0.4,
+                pointRadius: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { min: 0, max: 100, ticks: { display: false }, grid: { display: false } },
+                x: { ticks: { font: { size: 8 }, color: '#5a5e76' }, grid: { display: false } }
+            }
+        }
+    });
+
+    const totalRooms = 12; // Mock building room count
+    const occupiedRooms = new Set(classes.map(c => c.room)).size;
+
+    new Chart(utilityCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Occupied', 'Available'],
+            datasets: [{
+                data: [occupiedRooms, totalRooms - occupiedRooms],
+                backgroundColor: ['#ef4444', '#1e2235'],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '70%',
+            plugins: { legend: { display: false } }
+        }
+    });
 }
 
 // ═══════════════════════════════════════════
@@ -730,6 +1214,76 @@ function getCentroid(geom) {
 function buildCharts() {
     buildHeightChart();
     buildLanduseChart();
+    buildGlobalActivityCharts();
+}
+
+function buildGlobalActivityCharts() {
+    if (!scheduleData) return;
+
+    // 1. Day Distribution Heatmap
+    const daysOrder = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+    const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const countsPerDay = daysOrder.map(d => scheduleData.filter(c => c.days.includes(d)).length);
+
+    const dayCtx = document.getElementById('dayActivityChart')?.getContext('2d');
+    if (dayCtx) {
+        new Chart(dayCtx, {
+            type: 'bar',
+            data: {
+                labels: dayLabels,
+                datasets: [{
+                    label: 'Classes',
+                    data: countsPerDay,
+                    backgroundColor: 'rgba(56, 189, 248, 0.7)',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { ticks: { color: '#5a5e76', font: { size: 9 } }, grid: { display: false } },
+                    y: { ticks: { color: '#5a5e76', font: { size: 9 } }, grid: { color: 'rgba(30,34,53,0.5)' } }
+                }
+            }
+        });
+    }
+
+    // 2. Busiest Buildings
+    const bldgCounts = {};
+    scheduleData.forEach(c => {
+        bldgCounts[c.building] = (bldgCounts[c.building] || 0) + 1;
+    });
+
+    const sortedBldgs = Object.entries(bldgCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8);
+
+    const bldgCtx = document.getElementById('busiestBuildingsChart')?.getContext('2d');
+    if (bldgCtx) {
+        new Chart(bldgCtx, {
+            type: 'bar',
+            data: {
+                labels: sortedBldgs.map(b => b[0]),
+                datasets: [{
+                    data: sortedBldgs.map(b => b[1]),
+                    backgroundColor: '#a78bfa',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { ticks: { color: '#5a5e76', font: { size: 9 } }, grid: { color: 'rgba(30,34,53,0.5)' } },
+                    y: { ticks: { color: '#5a5e76', font: { size: 8 } }, grid: { display: false } }
+                }
+            }
+        });
+    }
 }
 
 function buildHeightChart() {

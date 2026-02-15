@@ -23,10 +23,10 @@
 </head>
 
 <body>
-    <!-- Sidebar -->
-    <aside id="sidebar">
+    <!-- :::::: LEFT SIDEBAR — Map Controls :::::: -->
+    <aside id="sidebar-left">
         <div class="sidebar-header">
-            <div class="logo-mark">UA</div>
+            <img src="assets/ua_logo.png" alt="University of Alabama" class="ua-logo">
             <div>
                 <h1>Digital Twin</h1>
                 <p class="subtitle">University of Alabama · Tuscaloosa</p>
@@ -80,7 +80,7 @@
 
         <!-- Search -->
         <div class="panel">
-            <h2>Search</h2>
+            <h2>Search Buildings</h2>
             <input type="text" id="searchInput" placeholder="Search buildings, parks, parking…" autocomplete="off">
             <div id="searchResults"></div>
         </div>
@@ -91,51 +91,7 @@
             <div id="buildingInfo"></div>
         </div>
 
-        <!-- Stats -->
-        <div class="panel">
-            <h2>Campus Statistics</h2>
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <span class="stat-value" id="buildingCount">—</span>
-                    <span class="stat-label">Buildings</span>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value" id="treeCount">—</span>
-                    <span class="stat-label">Trees</span>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value" id="parkingCount">—</span>
-                    <span class="stat-label">Parking Lots</span>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value" id="greenCount">—</span>
-                    <span class="stat-label">Green Spaces</span>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value" id="waterCount">—</span>
-                    <span class="stat-label">Water Features</span>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value" id="roadCount">—</span>
-                    <span class="stat-label">Road Segments</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Analytics Dashboard -->
-        <div class="panel">
-            <h2>Analytics</h2>
-            <div class="chart-container">
-                <h3 class="chart-title">Building Height Distribution</h3>
-                <canvas id="heightChart"></canvas>
-            </div>
-            <div class="chart-container">
-                <h3 class="chart-title">Land Use Breakdown</h3>
-                <canvas id="landuseChart"></canvas>
-            </div>
-        </div>
-
-        <!-- View Buttons -->
+        <!-- View Controls -->
         <div class="panel">
             <button class="btn" id="resetViewBtn">Reset View</button>
             <button class="btn btn-outline" id="togglePitchBtn">Toggle 3D / 2D</button>
@@ -147,8 +103,150 @@
         </div>
     </aside>
 
+    <!-- :::::: RIGHT SIDEBAR — Analytics & Schedule :::::: -->
+    <aside id="sidebar-right" class="collapsed">
+        <button id="toggleRightSidebar" class="sidebar-toggle-btn" title="Toggle Analytics Panel">
+            <svg viewBox="0 0 24 24" width="18" height="18">
+                <path fill="currentColor"
+                    d="M3,13H5V11H3V13M3,17H5V15H3V17M3,9H5V7H3V9M7,13H21V11H7V13M7,17H21V15H7V17M7,7V9H21V7H7Z" />
+            </svg>
+        </button>
+
+        <div class="sidebar-right-content">
+            <div class="sidebar-header">
+                <h1>Analytics & Schedule</h1>
+            </div>
+
+            <!-- Course Schedule -->
+            <div class="panel">
+                <h2>Course Schedule</h2>
+                <div class="course-search-container">
+                    <input type="text" id="courseSearchInput" placeholder="Find courses (e.g. CS101, GIS)…"
+                        autocomplete="off">
+                    <div id="courseSearchResults" class="dropdown-results"></div>
+                </div>
+                <div id="myScheduleContainer" class="mt-4">
+                    <h3 class="panel-sub-title">My Schedule</h3>
+                    <div id="myScheduleList">
+                        <p class="empty-msg">No courses added yet.</p>
+                    </div>
+                    <button class="btn btn-sm btn-outline mt-2 hidden" id="clearScheduleBtn">Clear Schedule</button>
+                    <div class="schedule-controls mt-2">
+                        <select id="scheduleDaySelect" class="form-select text-sm"
+                            style="width:100%; margin-bottom:8px; display:none;">
+                            <option value="Mon">Monday</option>
+                            <option value="Tue">Tuesday</option>
+                            <option value="Wed">Wednesday</option>
+                            <option value="Thu">Thursday</option>
+                            <option value="Fri">Friday</option>
+                            <option value="Sat">Saturday</option>
+                            <option value="Sun">Sunday</option>
+                        </select>
+                        <button class="btn btn-sm hidden" id="showRouteBtn">Show Walking Route</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats -->
+            <div class="panel">
+                <h2>Campus Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <span class="stat-value" id="buildingCount">—</span>
+                        <span class="stat-label">Buildings</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="treeCount">—</span>
+                        <span class="stat-label">Trees</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="parkingCount">—</span>
+                        <span class="stat-label">Parking Lots</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="greenCount">—</span>
+                        <span class="stat-label">Green Spaces</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="waterCount">—</span>
+                        <span class="stat-label">Water Features</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="roadCount">—</span>
+                        <span class="stat-label">Road Segments</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analytics Dashboard -->
+            <div class="panel">
+                <h2>Analytics</h2>
+                <div class="chart-container">
+                    <h3 class="chart-title">Building Height Distribution</h3>
+                    <canvas id="heightChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3 class="chart-title">Land Use Breakdown</h3>
+                    <canvas id="landuseChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3 class="chart-title">Campus Activity (Day Distribution)</h3>
+                    <canvas id="dayActivityChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3 class="chart-title">Top 10 Busiest Buildings</h3>
+                    <canvas id="busiestBuildingsChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </aside>
+
     <!-- Map -->
     <div id="map"></div>
+
+    <!-- Time Control Bar -->
+    <div id="timeControlBar">
+        <div class="time-control-inner">
+            <button id="playPauseBtn" class="play-btn">
+                <svg viewBox="0 0 24 24" width="20" height="20">
+                    <path fill="currentColor" d="M8,5.14V19.14L19,12.14L8,5.14Z" />
+                </svg>
+            </button>
+            <div class="time-slider-container">
+                <input type="range" id="timeSlider" min="360" max="1320" step="15" value="600">
+                <div class="time-labels">
+                    <span>6 AM</span>
+                    <span>12 PM</span>
+                    <span>6 PM</span>
+                    <span>10 PM</span>
+                </div>
+            </div>
+            <div class="current-time-display">
+                <span id="currentDay">Monday</span>
+                <span id="currentTime">10:00 AM</span>
+            </div>
+            <select id="daySelector" class="day-select">
+                <option value="Mon">Monday</option>
+                <option value="Tue">Tuesday</option>
+                <option value="Wed">Wednesday</option>
+                <option value="Thu">Thursday</option>
+                <option value="Fri">Friday</option>
+                <option value="Sat">Saturday</option>
+                <option value="Sun">Sunday</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Occupancy Legend -->
+    <div id="occupancyLegend" class="map-overlay">
+        <h4>Building Occupancy</h4>
+        <div class="legend-gradient"></div>
+        <div class="legend-labels">
+            <span>0%</span>
+            <span>50%</span>
+            <span>100%</span>
+        </div>
+    </div>
 
     <!-- Loading -->
     <div id="loading">

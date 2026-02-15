@@ -62,8 +62,10 @@ def fetch_buildings():
     if output_gdf.crs is None:
         output_gdf.set_crs('EPSG:4326', inplace=True)
 
-    # --- NEW: Enrich with OSM Data ---
+    # --- NEW: Enrich with OSM Data & Manual Metadata ---
     import osmnx as ox
+    import pandas as pd
+    import geopandas as gpd
     
     print("Fetching OSM buildings for name enrichment...")
     tags = {'building': True}
@@ -86,7 +88,6 @@ def fetch_buildings():
                 osm_gdf = osm_gdf.to_crs(output_gdf.crs)
 
             # Spatial join: Overture (left) + OSM (right)
-            # We want to keep all Overture buildings
             enriched = gpd.sjoin(
                 output_gdf, 
                 osm_gdf, 
@@ -96,52 +97,92 @@ def fetch_buildings():
             
             # Function to prioritize names
             def get_best_name(row):
-                # 1. Keep existing Overture name if present
                 if pd.notna(row['display_name']) and row['display_name'] != '':
                     return row['display_name']
-                
-                # 2. Try OSM 'name'
                 if 'name' in row and pd.notna(row['name']):
                     return row['name']
-                
-                # 3. Try OSM 'addr:housename'
                 if 'addr:housename' in row and pd.notna(row['addr:housename']):
                     return row['addr:housename']
-                
-                # 4. Try other variants
                 for col in ['official_name', 'alt_name']:
                     if col in row and pd.notna(row[col]):
                         return row[col]
-                        
                 return None
 
-            # Apply name selection
             enriched['new_display_name'] = enriched.apply(get_best_name, axis=1)
-            
-            # sjoin creates duplicates if multiple OSM features intersect one Overture feature.
-            # We group by the Overture ID (which is in the index or 'id' col) and take the first valid name.
-            # Since 'id' is a column, let's use it.
-            
-            # First, update display_name where we found a better one
-            # We can't just assign back because of duplicates.
-            # Let's create a mapping of id -> best_name
-            
-            # Sort to prioritize rows with names?
-            # Actually, let's just drop duplicates keeping the one with a name if possible.
-            # But the simplest way is to group by 'id' and take the first non-null new_display_name.
-            
             name_map = enriched.groupby('id')['new_display_name'].first()
-            
-            # Map back to original output_gdf
             output_gdf['display_name'] = output_gdf['id'].map(name_map)
-            
             print(f"  [OK] Merged with OSM data. {len(osm_gdf)} OSM features processed.")
             
     except Exception as e:
         print(f"  [WARN] OSM enrichment failed: {e}")
-        import traceback
-        traceback.print_exc()
 
+    # --- Manual Metadata Enrichment ---
+    print("Applying manual metadata for key buildings...")
+    building_metadata = {
+        "Bryant-Denny Stadium": {
+            "name": "Bryant-Denny Stadium",
+            "type": "stadium",
+            "purpose": "Football Stadium",
+            "height": 45.0,
+            "color": "#e63946"
+        },
+        "Gorgas Library": {
+            "name": "Amelia Gayle Gorgas Library",
+            "type": "library",
+            "purpose": "Main Library",
+            "height": 30.0,
+            "color": "#a8dadc"
+        },
+        "Ferguson Center": {
+            "name": "Ferguson Student Center",
+            "type": "student_center",
+            "purpose": "Student Services",
+            "height": 25.0,
+            "color": "#f1faee"
+        },
+        "Shelby Hall": {
+            "name": "Shelby Hall",
+            "type": "academic",
+            "purpose": "Engineering & Science",
+            "height": 28.0,
+            "color": "#457b9d"
+        },
+        "Coleman Coliseum": {
+            "name": "Coleman Coliseum",
+            "type": "arena",
+            "purpose": "Basketball/Gymnastics",
+            "height": 22.0,
+            "color": "#1d3557"
+        },
+        "Russell Hall": {
+            "name": "Russell Hall",
+            "type": "academic",
+            "purpose": "Nursing/Health",
+            "height": 20.0
+        },
+        "Gallalee Hall": {
+            "name": "Gallalee Hall",
+            "type": "academic",
+            "purpose": "Physics",
+            "height": 18.0
+        }
+    }
+
+    def apply_manual_meta(row):
+        name = row.get('display_name')
+        if pd.isna(name): return row
+        
+        for key, data in building_metadata.items():
+            if key.lower() in str(name).lower() or str(name).lower() in key.lower():
+                row['display_name'] = data['name']
+                if 'type' in data: row['class'] = data['type']
+                if 'purpose' in data: row['subtype'] = data['purpose']
+                if pd.isna(row.get('height')) or row.get('height') == 8.0:
+                     row['height'] = data.get('height', row.get('height'))
+                return row
+        return row
+
+    output_gdf = output_gdf.apply(apply_manual_meta, axis=1)
     # ---------------------------------
 
     # Save
