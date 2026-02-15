@@ -1,0 +1,42 @@
+{
+  "campus": {
+    "name": "University of Alabama - Tuscaloosa",
+    "bounding_box": {
+      "north": 33.223,
+      "south": 33.201,
+      "east": -87.523,
+      "west": -87.554
+    },
+    "center": {
+      "lat": 33.206,
+      "lon": -87.532
+    }
+  },
+  "data_sources": {
+    "overture_maps": {
+      "enabled": true,
+      "bbox": [
+        -87.568,
+        33.192,
+        -87.528,
+        33.222
+      ],
+      "type": "building"
+    },
+    "osmnx": {
+      "enabled": true,
+      "place": "University of Alabama, Tuscaloosa, Alabama",
+      "tags": {
+        "natural": [
+          "tree",
+          "wood",
+          "tree_row"
+        ]
+      }
+    }
+  },
+  "building_defaults": {
+    "default_height": 10.0,
+    "height_units": "meters"
+  }
+}

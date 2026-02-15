@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UA Campus Digital Twin</title>
+    <meta name="description"
+        content="Interactive Digital Twin of the University of Alabama campus — 3D buildings, land use, green spaces, parking, roads, and analytics dashboard">
+
+    <!-- MapLibre GL JS -->
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+    <!-- Sidebar -->
+    <aside id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-mark">UA</div>
+            <div>
+                <h1>Digital Twin</h1>
+                <p class="subtitle">University of Alabama · Tuscaloosa</p>
+            </div>
+        </div>
+
+        <!-- Layer Controls -->
+        <div class="panel">
+            <h2>Map Layers</h2>
+            <label class="toggle-row">
+                <span><i class="dot" style="background:#5b82cc"></i> 3D Buildings</span>
+                <input type="checkbox" id="toggleBuildings" checked>
+                <span class="toggle-slider"></span>
+            </label>
+            <label class="toggle-row">
+                <span><i class="dot" style="background:#22c55e"></i> Tree Canopy</span>
+                <input type="checkbox" id="toggleTrees" checked>
+                <span class="toggle-slider"></span>
+            </label>
+            <label class="toggle-row">
+                <span><i class="dot" style="background:#4ade80"></i> Green Spaces</span>
+                <input type="checkbox" id="toggleGreen" checked>
+                <span class="toggle-slider"></span>
+            </label>
+            <label class="toggle-row">
+                <span><i class="dot" style="background:#f59e0b"></i> Parking Lots</span>
+                <input type="checkbox" id="toggleParking" checked>
+                <span class="toggle-slider"></span>
+            </label>
+            <label class="toggle-row">
+                <span><i class="dot" style="background:#38bdf8"></i> Water</span>
+                <input type="checkbox" id="toggleWater" checked>
+                <span class="toggle-slider"></span>
+            </label>
+            <label class="toggle-row">
+                <span><i class="dot" style="background:#94a3b8"></i> Roads &amp; Paths</span>
+                <input type="checkbox" id="toggleRoads" checked>
+                <span class="toggle-slider"></span>
+            </label>
+            <label class="toggle-row">
+                <span><i class="dot" style="background:#2a3a6b"></i> Land Use (Base)</span>
+                <input type="checkbox" id="toggleLanduse" checked>
+                <span class="toggle-slider"></span>
+            </label>
+            <label class="toggle-row">
+                <span><i class="dot" style="background:#d4ddf0"></i> Labels</span>
+                <input type="checkbox" id="toggleLabels" checked>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+
+        <!-- Search -->
+        <div class="panel">
+            <h2>Search</h2>
+            <input type="text" id="searchInput" placeholder="Search buildings, parks, parking…" autocomplete="off">
+            <div id="searchResults"></div>
+        </div>
+
+        <!-- Building Info -->
+        <div class="panel" id="infoPanel" style="display:none;">
+            <h2>Feature Info</h2>
+            <div id="buildingInfo"></div>
+        </div>
+
+        <!-- Stats -->
+        <div class="panel">
+            <h2>Campus Statistics</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <span class="stat-value" id="buildingCount">—</span>
+                    <span class="stat-label">Buildings</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="treeCount">—</span>
+                    <span class="stat-label">Trees</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="parkingCount">—</span>
+                    <span class="stat-label">Parking Lots</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="greenCount">—</span>
+                    <span class="stat-label">Green Spaces</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="waterCount">—</span>
+                    <span class="stat-label">Water Features</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="roadCount">—</span>
+                    <span class="stat-label">Road Segments</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analytics Dashboard -->
+        <div class="panel">
+            <h2>Analytics</h2>
+            <div class="chart-container">
+                <h3 class="chart-title">Building Height Distribution</h3>
+                <canvas id="heightChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3 class="chart-title">Land Use Breakdown</h3>
+                <canvas id="landuseChart"></canvas>
+            </div>
+        </div>
+
+        <!-- View Buttons -->
+        <div class="panel">
+            <button class="btn" id="resetViewBtn">Reset View</button>
+            <button class="btn btn-outline" id="togglePitchBtn">Toggle 3D / 2D</button>
+        </div>
+
+        <div class="panel sidebar-footer">
+            <p>Data: Overture Maps · OpenStreetMap</p>
+            <p>Powered by MapLibre GL JS · Chart.js</p>
+        </div>
+    </aside>
+
+    <!-- Map -->
+    <div id="map"></div>
+
+    <!-- Loading -->
+    <div id="loading">
+        <div class="loader"></div>
+        <p>Loading campus data…</p>
+    </div>
+
+    <!-- Tooltip -->
+    <div id="tooltip" class="tooltip"></div>
+
+    <script src="js/app.js"></script>
+</body>
+
+</html>
